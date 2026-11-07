@@ -19,7 +19,7 @@ class DreameApp extends Homey.App {
 
   async onInit() {
     this._api = null;
-    this._mqtt = null;
+    this._mqtt = new Map(); // one MQTT client per device id
     this._initApi();
   }
 
@@ -90,8 +90,8 @@ class DreameApp extends Homey.App {
       }
 
       // Update MQTT token if connected
-      if (this._mqtt) {
-        this._mqtt.updateToken(tokens.accessToken);
+      for (const client of this._mqtt.values()) {
+        client.updateToken(tokens.accessToken);
       }
     };
   }
@@ -101,14 +101,24 @@ class DreameApp extends Homey.App {
   }
 
   /**
-   * Get or create the shared MQTT client.
-   * Devices call this to register for property updates.
+   * Get or create the MQTT client for a device.
+   * A client holds a single subscription, so each device needs its own.
    */
-  getMqtt() {
-    if (!this._mqtt) {
-      this._mqtt = new DreameMqtt({ logger: this.log.bind(this) });
+  getMqtt(did) {
+    let client = this._mqtt.get(did);
+    if (!client) {
+      client = new DreameMqtt({ logger: this.log.bind(this) });
+      this._mqtt.set(did, client);
     }
-    return this._mqtt;
+    return client;
+  }
+
+  releaseMqtt(did) {
+    const client = this._mqtt.get(did);
+    if (client) {
+      client.disconnect();
+      this._mqtt.delete(did);
+    }
   }
 
   setCredentials(username, password, country) {
@@ -478,10 +488,10 @@ class DreameApp extends Homey.App {
   }
 
   async onUninit() {
-    if (this._mqtt) {
-      this._mqtt.disconnect();
-      this._mqtt = null;
+    for (const client of this._mqtt.values()) {
+      client.disconnect();
     }
+    this._mqtt.clear();
   }
 
 }
